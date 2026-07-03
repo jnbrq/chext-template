@@ -22,6 +22,14 @@ Useful commands:
 ./manage.py cleanup-template
 ```
 
+The same manager is available from `chisel_rtl/` through a symlink:
+
+```sh
+cd chisel_rtl
+./manage.py status
+./manage.py sync
+```
+
 `rename` changes the project identity in `build.sbt`, `project.json`, and
 `sysc_tb/CMakeLists.txt`. It does not move or rewrite package trees. Packages are explicit:
 use `add-package <name>` or pass `--package <name>` when adding a module/test. Package

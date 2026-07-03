@@ -1,8 +1,15 @@
+# Editors and language servers
 .metals/
 .bloop/
 .bsp/
 .vscode/
-target/
-build/
+
+# Python manager caches
 __pycache__/
 *.pyc
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.tmp
+*~

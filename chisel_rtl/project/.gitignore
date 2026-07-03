@@ -1,0 +1,5 @@
+# Keep the hand-written SBT project files only.
+target/
+project/
+.bloop/
+metals.sbt

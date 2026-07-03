@@ -1,0 +1,22 @@
+# Scala / SBT generated files
+target/
+project/target/
+project/project/
+project/boot/
+project/plugins/project/
+
+# Metals / Bloop / BSP / editor state
+.metals/
+.bloop/
+.bsp/
+.vscode/
+project/.bloop/
+project/metals.sbt
+
+# Chisel / test generated output
+test_run_dir/
+generated/
+*.fir
+*.anno.json
+*.vcd
+*.fst

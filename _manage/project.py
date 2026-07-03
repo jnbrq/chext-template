@@ -12,7 +12,7 @@ class Project:
     def __init__(self, root: Path):
         self.root = root.resolve()
         self.manifest_path = self.root / "project.json"
-        self.template_dir = self.root / "tools" / "chext_template" / "templates"
+        self.template_dir = self.root / "_manage" / "templates"
         self.data = json.loads(read_text(self.manifest_path))
 
     @classmethod
@@ -52,6 +52,7 @@ class Project:
 
     def status(self) -> str:
         modules = self.data.get("modules", [])
+        tests = self.data.get("tests", [])
         lines = [
             f"project: {self.data['project_name']}",
             f"default package: {self.default_package}",
@@ -63,6 +64,9 @@ class Project:
                 f"  - {module.get('package', self.default_package)}.{module['name']} "
                 f"({module.get('style', 'unknown')})"
             )
+        lines.append(f"tests: {len(tests)}")
+        for test in tests:
+            lines.append(f"  - {test.get('package', self.default_package)}.{test['name']}")
         return "\n".join(lines)
 
     def add_package(self, package: str) -> None:
@@ -75,12 +79,16 @@ class Project:
         for rel in [
             f"chisel_rtl/src/main/scala/{package_path}/.gitkeep",
             f"chisel_rtl/tests/{package_path}/.gitkeep",
-            f"sysc_tb/src/{package_path}/.gitkeep",
-            f"sysc_tb/common/include/{package_path}/.gitkeep",
+            f"sysc_tb/{package_path}/src/.gitkeep",
+            f"sysc_tb/{package_path}/include/.gitkeep",
+            f"sysc_tb/{package_path}/hdl/.gitkeep",
+            f"sysc_tb/_common/include/{package_path}/.gitkeep",
         ]:
             path = self.root / rel
             path.parent.mkdir(parents=True, exist_ok=True)
             path.touch(exist_ok=True)
+        cmake.ensure_package_cmake(self.root / "sysc_tb" / package_path / "CMakeLists.txt")
+        self._sync_package_subdirectories()
 
     def module_exists(self, module_name: str, package: str | None = None) -> bool:
         package = package or self.default_package
@@ -134,23 +142,22 @@ class Project:
         if with_test:
             self.add_test(module_name, force=force, package=package)
 
-    def add_test(self, module_name: str, force: bool = False, package: str | None = None) -> None:
-        names.require_module_name(module_name)
+    def add_test(self, test_name: str, force: bool = False, package: str | None = None) -> None:
+        names.require_module_name(test_name)
         package = self._resolve_package(package)
-        module = self._get_module(module_name, package)
-        kind = "elastic" if module.get("style") == "structured" else "plain"
         package_path = self._package_path(package)
+        self._ensure_hdl_dir(package)
 
-        scala_rel = f"chisel_rtl/tests/{package_path}/{module_name}.tb.scala"
-        cpp_rel = f"sysc_tb/src/{package_path}/{module_name}.tb.cpp"
+        scala_rel = f"chisel_rtl/tests/{package_path}/{test_name}.tb.scala"
+        cpp_rel = f"sysc_tb/{package_path}/src/{test_name}.tb.cpp"
 
         write_text(
             self.root / scala_rel,
             render_template(
                 self.template_dir,
-                f"tb_{kind}.scala.j2",
+                "testbench.scala.j2",
                 scala_package=package,
-                module_name=module_name,
+                test_name=test_name,
             ),
             force=force,
         )
@@ -160,32 +167,171 @@ class Project:
                 self.template_dir,
                 "sysc_tb.cpp.j2",
                 cpp_namespace=package,
-                module_name=module_name,
+                module_name=test_name,
             ),
             force=force,
         )
 
-        tests = module.setdefault("tests", [])
-        if not any(test["name"] == module_name for test in tests):
+        tests = self.data.setdefault("tests", [])
+        if not any(test["name"] == test_name and test.get("package", self.default_package) == package for test in tests):
             tests.append(
                 {
-                    "name": module_name,
-                    "kind": kind,
+                    "name": test_name,
+                    "package": package,
                     "scala": scala_rel,
                     "cpp": cpp_rel,
-                    "target": f"{package}.{module_name}.tb",
+                    "target": f"{package}.{test_name}.tb",
                     "trace": True,
                 }
             )
             self.save()
 
-        self.sync_tests()
+        self.sync()
 
-    def sync_tests(self) -> list[scanner.EmitSite]:
+    def sync(self) -> dict[str, int]:
+        discovered_modules = self._discover_modules()
+        self.data["modules"] = discovered_modules
+
+        packages = set(self.data.get("packages", []))
+        packages.add(self.default_package)
+        for module in discovered_modules:
+            packages.add(module["package"])
+
         sites = self.scan_tests()
-        entries = scanner.cmake_entries(self.root, sites)
-        cmake.update_managed_region(self.root / "sysc_tb" / "CMakeLists.txt", entries)
+        tests = []
+        for site in sites:
+            packages.add(site.package)
+            package_path = self._package_path(site.package)
+            tests.append(
+                {
+                    "name": site.logical_name,
+                    "package": site.package,
+                    "scala": str(site.scala_path.relative_to(self.root)),
+                    "cpp": f"sysc_tb/{package_path}/src/{site.logical_name}.tb.cpp",
+                    "target": f"{site.package}.{site.logical_name}.tb",
+                    "hdl_modules": site.hdl_modules,
+                    "trace": True,
+                }
+            )
+
+        self.data["tests"] = sorted(tests, key=lambda item: (item["package"], item["name"]))
+        self.data["packages"] = sorted(packages)
+        if self.default_package in self.data["packages"]:
+            self.data["packages"].remove(self.default_package)
+            self.data["packages"].insert(0, self.default_package)
+
+        for package in self.packages:
+            self.add_package(package)
+
+        self.save()
+        self._sync_outputs()
+        return {
+            "modules": len(discovered_modules),
+            "tests": len(tests),
+            "packages": len(self.packages),
+        }
+
+    def _discover_modules(self) -> list[dict[str, object]]:
+        scala_root = self.root / "chisel_rtl" / "src" / "main" / "scala"
+        discovered: list[dict[str, object]] = []
+        if not scala_root.exists():
+            return discovered
+
+        package_re = re.compile(r"^\s*package\s+([A-Za-z_][A-Za-z0-9_.]*)", re.MULTILINE)
+        module_re = re.compile(
+            r"(?m)^\s*(?:private\s+)?class\s+([A-Z][A-Za-z0-9_]*)\b[^{\n]*(?:extends\s+|with\s+)Module\b"
+        )
+
+        existing = {
+            (module.get("package", self.default_package), module["name"]): module
+            for module in self.data.get("modules", [])
+        }
+
+        for scala_path in sorted(scala_root.rglob("*.scala")):
+            text = scala_path.read_text(encoding="utf-8")
+            package_match = package_re.search(text)
+            if not package_match:
+                continue
+            package = package_match.group(1)
+            for match in module_re.finditer(text):
+                module_name = match.group(1)
+                if module_name.endswith("_TbTop") or module_name.endswith("_Tbtop"):
+                    continue
+                previous = existing.get((package, module_name), {})
+                style = previous.get("style")
+                if style is None:
+                    style = "structured" if f"case class {module_name}_Config" in text else "plain"
+                discovered.append(
+                    {
+                        "name": module_name,
+                        "package": package,
+                        "style": style,
+                        "rtl": str(scala_path.relative_to(self.root)),
+                    }
+                )
+
+        return sorted(discovered, key=lambda item: (str(item["package"]), str(item["name"])))
+
+    def _sync_outputs(self) -> list[scanner.EmitSite]:
+        sites = self.scan_tests()
+        for site in sites:
+            self._ensure_hdl_dir(site.package)
+            cmake.ensure_package_cmake(
+                self.root / "sysc_tb" / self._package_path(site.package) / "CMakeLists.txt"
+            )
+            self._sync_cpp_hdl_includes(site)
+
+        self._sync_package_subdirectories()
+
+        entries_by_package: dict[str, list[cmake.TestbenchEntry]] = {}
+        for entry_site in sites:
+            entries_by_package.setdefault(entry_site.package, [])
+        for entry in scanner.cmake_entries(self.root, sites):
+            package = entry.target_name.rsplit(".", 2)[0]
+            entries_by_package.setdefault(package, []).append(entry)
+
+        for package in self.packages:
+            package_path = self._package_path(package)
+            package_cmake = self.root / "sysc_tb" / package_path / "CMakeLists.txt"
+            cmake.ensure_package_cmake(package_cmake)
+            cmake.update_managed_region(package_cmake, entries_by_package.get(package, []))
         return sites
+
+    def _sync_cpp_hdl_includes(self, site: scanner.EmitSite) -> None:
+        package_path = self._package_path(site.package)
+        cpp_path = self.root / "sysc_tb" / package_path / "src" / f"{site.logical_name}.tb.cpp"
+        if not cpp_path.exists():
+            return
+
+        begin = "// BEGIN MANAGED HDL INCLUDES"
+        end = "// END MANAGED HDL INCLUDES"
+        includes = "\n".join(f"#include <{module}.hpp>" for module in site.hdl_modules)
+        block = f"{begin}\n{includes}\n{end}"
+
+        text = cpp_path.read_text(encoding="utf-8")
+        begin_pos = text.find(begin)
+        end_pos = text.find(end)
+        if begin_pos != -1 and end_pos != -1 and end_pos > begin_pos:
+            end_pos += len(end)
+            text = f"{text[:begin_pos]}{block}{text[end_pos:]}"
+        else:
+            text = f"{block}\n\n{text}"
+        cpp_path.write_text(text, encoding="utf-8")
+
+    def _ensure_hdl_dir(self, package: str) -> None:
+        package_path = self._package_path(package)
+        for rel in [
+            f"sysc_tb/{package_path}/hdl/.gitkeep",
+            f"sysc_tb/{package_path}/src/.gitkeep",
+            f"sysc_tb/{package_path}/include/.gitkeep",
+        ]:
+            keep = self.root / rel
+            keep.parent.mkdir(parents=True, exist_ok=True)
+            keep.touch(exist_ok=True)
+
+    def _sync_package_subdirectories(self) -> None:
+        package_paths = [self._package_path(package) for package in self.packages]
+        cmake.update_managed_packages(self.root / "sysc_tb" / "CMakeLists.txt", package_paths)
 
     def scan_tests(self) -> list[scanner.EmitSite]:
         return scanner.scan_emits(self.root / "chisel_rtl")
@@ -217,7 +363,7 @@ class Project:
         if not sites:
             raise ValueError("no tests matched")
 
-        self.sync_tests()
+        self._sync_outputs()
         build_path = self.root / "sysc_tb" / build_dir
 
         def invoke(cmd: list[str], cwd: Path) -> None:
@@ -240,7 +386,7 @@ class Project:
         if run:
             for site in sites:
                 target = f"{site.package}.{site.logical_name}.tb"
-                exe = build_path / target
+                exe = build_path / self._package_path(site.package) / target
                 invoke([str(exe)], self.root / "sysc_tb")
 
     def check(self) -> list[str]:
@@ -248,19 +394,11 @@ class Project:
         required = [
             "chisel_rtl/build.sbt",
             "sysc_tb/CMakeLists.txt",
-            "tools/chext_template/templates/module_structured.scala.j2",
+            "_manage/templates/module_structured.scala.j2",
         ]
         for rel in required:
             if not (self.root / rel).exists():
                 issues.append(f"missing {rel}")
-
-        sites = self.scan_tests()
-        for site in sites:
-            if site.desired_name is None:
-                issues.append(
-                    f"{site.scala_path.relative_to(self.root)} emits {site.emitted_class} "
-                    "without a literal override def desiredName"
-                )
 
         return issues
 
@@ -279,14 +417,15 @@ class Project:
 
         self.data["project_name"] = new_name
         self.save()
-        self.sync_tests()
+        self.sync()
 
     def cleanup_template(self) -> None:
         removed = False
         modules = []
+        removed_tests: list[dict[str, object]] = []
         for module in self.data.get("modules", []):
             package = module.get("package", self.default_package)
-            if module["name"] == "Example" and package == self.default_package:
+            if module["name"] == "TransformExample" and package == self.default_package:
                 for rel in [module.get("rtl", "")]:
                     if rel:
                         (self.root / rel).unlink(missing_ok=True)
@@ -298,10 +437,24 @@ class Project:
             else:
                 modules.append(module)
         self.data["modules"] = modules
+        kept_tests = []
+        for test in self.data.get("tests", []):
+            if (
+                test["name"] == "TransformExample"
+                and test.get("package", self.default_package) == self.default_package
+            ):
+                removed_tests.append(test)
+            else:
+                kept_tests.append(test)
+        for test in removed_tests:
+            for rel in [test.get("scala", ""), test.get("cpp", "")]:
+                if rel:
+                    (self.root / str(rel)).unlink(missing_ok=True)
+        self.data["tests"] = kept_tests
         self.save()
-        self.sync_tests()
+        self.sync()
         if not removed:
-            raise ValueError("no default-package Example module was found")
+            raise ValueError("no default-package TransformExample module was found")
 
     def _get_module(self, module_name: str, package: str | None = None) -> dict:
         package = package or self.default_package

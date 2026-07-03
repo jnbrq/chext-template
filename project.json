@@ -6,20 +6,40 @@
   ],
   "modules": [
     {
-      "name": "Example",
+      "name": "TransducerExample",
       "package": "chext_template",
       "style": "structured",
-      "rtl": "chisel_rtl/src/main/scala/chext_template/Example.scala",
-      "tests": [
-        {
-          "name": "Example",
-          "kind": "elastic",
-          "scala": "chisel_rtl/tests/chext_template/Example.tb.scala",
-          "cpp": "sysc_tb/src/chext_template/Example.tb.cpp",
-          "target": "chext_template.Example.tb",
-          "trace": true
-        }
-      ]
+      "rtl": "chisel_rtl/src/main/scala/chext_template/TransducerExample.scala"
+    },
+    {
+      "name": "TransformExample",
+      "package": "chext_template",
+      "style": "structured",
+      "rtl": "chisel_rtl/src/main/scala/chext_template/TransformExample.scala"
+    }
+  ],
+  "tests": [
+    {
+      "name": "TransducerExample",
+      "package": "chext_template",
+      "scala": "chisel_rtl/tests/chext_template/TransducerExample.tb.scala",
+      "cpp": "sysc_tb/chext_template/src/TransducerExample.tb.cpp",
+      "target": "chext_template.TransducerExample.tb",
+      "hdl_modules": [
+        "TransducerExample"
+      ],
+      "trace": true
+    },
+    {
+      "name": "TransformExample",
+      "package": "chext_template",
+      "scala": "chisel_rtl/tests/chext_template/TransformExample.tb.scala",
+      "cpp": "sysc_tb/chext_template/src/TransformExample.tb.cpp",
+      "target": "chext_template.TransformExample.tb",
+      "hdl_modules": [
+        "TransformExample"
+      ],
+      "trace": true
     }
   ]
 }

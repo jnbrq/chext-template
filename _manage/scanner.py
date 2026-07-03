@@ -22,12 +22,19 @@ class EmitSite:
     scala_path: Path
     package: str
     object_name: str
-    emitted_class: str
-    desired_name: str | None
+    emitted_classes: list[str]
+    desired_names: list[str | None]
 
     @property
     def logical_name(self) -> str:
-        return self.emitted_class.removesuffix("_TbTop").removesuffix("_Tbtop")
+        return self.object_name.removesuffix("_Tb")
+
+    @property
+    def hdl_modules(self) -> list[str]:
+        return [
+            desired_name or emitted_class
+            for emitted_class, desired_name in zip(self.emitted_classes, self.desired_names)
+        ]
 
 
 def _find_desired_name(text: str, emitted_class: str) -> str | None:
@@ -87,17 +94,17 @@ def scan_emits(chisel_root: Path) -> list[EmitSite]:
             body = _find_object_body(text, object_line_start)
             if body is None:
                 continue
-            emit_match = EMIT_RE.search(body)
-            if not emit_match:
-                continue
-            emitted_class = emit_match.group(1)
+            emitted_classes = [match.group(1) for match in EMIT_RE.finditer(body)]
             sites.append(
                 EmitSite(
                     scala_path=scala_path,
                     package=package,
                     object_name=object_match.group(1),
-                    emitted_class=emitted_class,
-                    desired_name=_find_desired_name(text, emitted_class),
+                    emitted_classes=emitted_classes,
+                    desired_names=[
+                        _find_desired_name(text, emitted_class)
+                        for emitted_class in emitted_classes
+                    ],
                 )
             )
     return sites
@@ -108,14 +115,15 @@ def cmake_entries(project_root: Path, sites: list[EmitSite]) -> list[TestbenchEn
     for site in sites:
         package_path = site.package.replace(".", "/")
         logical = site.logical_name
-        cpp = project_root / "sysc_tb" / "src" / package_path / f"{logical}.tb.cpp"
-        if not cpp.exists():
+        cpp = project_root / "sysc_tb" / package_path / "src" / f"{logical}.tb.cpp"
+        if not cpp.exists() or not site.hdl_modules:
             continue
         entries.append(
             TestbenchEntry(
                 target_name=f"{site.package}.{logical}.tb",
-                cpp_source=f"{package_path}/{logical}.tb.cpp",
-                hdl_module=site.desired_name or site.emitted_class,
+                cpp_source=f"src/{logical}.tb.cpp",
+                hdl_dir="hdl",
+                hdl_modules=site.hdl_modules,
                 trace=True,
             )
         )

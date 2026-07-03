@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from tools.chext_template.cli import main
+from _manage.cli import main
 
 
 if __name__ == "__main__":

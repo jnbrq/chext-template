@@ -16,11 +16,24 @@ find_package(chext_test REQUIRED)
 
 include(CMakeParseArguments)
 
+file(
+    GLOB_RECURSE
+    COMMON_SRCS
+    CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/_common/src/*.c"
+    "${CMAKE_SOURCE_DIR}/_common/src/*.cc"
+    "${CMAKE_SOURCE_DIR}/_common/src/*.cpp"
+)
+
 function(generate_tb)
     set(options "")
-    set(oneValueArgs TARGET_NAME)
+    set(oneValueArgs TARGET_NAME HDL_DIR)
     set(multiValueArgs CPP_SOURCES HDL_MODULES VERILATOR_ARGS CPP_DEFS)
     cmake_parse_arguments(GEN_TB "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    if(NOT GEN_TB_HDL_DIR)
+        set(GEN_TB_HDL_DIR hdl)
+    endif()
 
     add_executable(${GEN_TB_TARGET_NAME})
     set_target_properties(${GEN_TB_TARGET_NAME} PROPERTIES OUTPUT_NAME ${GEN_TB_TARGET_NAME})
@@ -30,12 +43,20 @@ function(generate_tb)
         target_sources(
             ${GEN_TB_TARGET_NAME}
             PUBLIC
-            ${CMAKE_SOURCE_DIR}/src/${SOURCE_FILE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/${SOURCE_FILE}
         )
     endforeach()
 
-    target_include_directories(${GEN_TB_TARGET_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/include/)
-    target_include_directories(${GEN_TB_TARGET_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/common/include)
+    foreach(SOURCE_FILE IN LISTS COMMON_SRCS)
+        target_sources(
+            ${GEN_TB_TARGET_NAME}
+            PUBLIC
+            ${SOURCE_FILE}
+        )
+    endforeach()
+
+    target_include_directories(${GEN_TB_TARGET_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_include_directories(${GEN_TB_TARGET_NAME} PUBLIC ${CMAKE_SOURCE_DIR}/_common/include)
 
     target_link_libraries(
         ${GEN_TB_TARGET_NAME}
@@ -54,31 +75,23 @@ function(generate_tb)
             ${GEN_TB_TARGET_NAME}
             SYSTEMC
             SOURCES
-                "${CMAKE_SOURCE_DIR}/hdl/${MODULE}.sv"
+                "${CMAKE_CURRENT_SOURCE_DIR}/${GEN_TB_HDL_DIR}/${MODULE}.sv"
             VERILATOR_ARGS
-                "-I${CMAKE_SOURCE_DIR}/common/hdl/"
-                "-I${CMAKE_SOURCE_DIR}/hdl/${MODULE}_include/"
+                "-I${CMAKE_SOURCE_DIR}/_common/verilog/"
+                "-I${CMAKE_CURRENT_SOURCE_DIR}/${GEN_TB_HDL_DIR}/${MODULE}_include/"
                 "${GEN_TB_VERILATOR_ARGS}"
         )
 
         hdlscw(
             TARGET ${GEN_TB_TARGET_NAME}
             HDLINFO
-                "${CMAKE_SOURCE_DIR}/hdl/${MODULE}.hdlinfo.json"
+                "${CMAKE_CURRENT_SOURCE_DIR}/${GEN_TB_HDL_DIR}/${MODULE}.hdlinfo.json"
             ARGS
                 "-r" "${CMAKE_SOURCE_DIR}/protocols.py"
         )
     endforeach()
 endfunction()
 
-# BEGIN MANAGED TESTBENCHES
-generate_tb(
-    TARGET_NAME chext_template.Example.tb
-    CPP_SOURCES chext_template/Example.tb.cpp
-    HDL_MODULES Example_TbTop
-    VERILATOR_ARGS
-        "--trace"
-    CPP_DEFS
-        VERILATED_TRACE_ENABLED
-)
-# END MANAGED TESTBENCHES
+# BEGIN MANAGED PACKAGES
+add_subdirectory(chext_template)
+# END MANAGED PACKAGES

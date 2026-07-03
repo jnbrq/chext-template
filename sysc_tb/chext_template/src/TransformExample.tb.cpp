@@ -1,3 +1,7 @@
+// BEGIN MANAGED HDL INCLUDES
+#include <TransformExample.hpp>
+// END MANAGED HDL INCLUDES
+
 #include <systemc>
 
 #include <chext_test/chext_test.hpp>

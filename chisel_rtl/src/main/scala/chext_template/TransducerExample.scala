@@ -33,13 +33,13 @@ class TransducerExample(val cfg: TransducerExample_Config) extends Module with c
 
   val transducer0 = new e.Transducer(source, sink) {
     val regSum = RegInit(0.U(cfg.width.W))
-    val wireSumNext = Mux(in.last, 0.U, regSum + in.data)
+    val wireSumNext = regSum + in.data
 
     out := wireSumNext
 
     packet {
       when(in.last) {
-        accept { regSum := wireSumNext }
+        accept { regSum := 0.U }
       }.otherwise {
         consume { regSum := wireSumNext }
       }

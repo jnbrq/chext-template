@@ -1,1 +1,1 @@
-# Protocol registration hook for hdlscw.
+import chext_test

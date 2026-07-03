@@ -2,7 +2,11 @@
 .metals/
 .bloop/
 .bsp/
-.vscode/
+.vscode/*
+!chisel_rtl/.vscode/
+!chisel_rtl/.vscode/settings.json
+!sysc_tb/.vscode/
+!sysc_tb/.vscode/settings.json
 
 # Python manager caches
 __pycache__/

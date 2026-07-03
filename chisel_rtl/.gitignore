@@ -9,7 +9,9 @@ project/plugins/project/
 .metals/
 .bloop/
 .bsp/
-.vscode/
+.vscode/*
+!.vscode/
+!.vscode/settings.json
 project/.bloop/
 project/metals.sbt
 

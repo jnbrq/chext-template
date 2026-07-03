@@ -38,5 +38,5 @@ class TransformExample(val cfg: TransformExample_Config) extends Module with che
   declareClock(clock)
   declareReset(reset)
   declareElasticInterface(source, "Input")
-  declareElasticInterface(sink," Output")
+  declareElasticInterface(sink, "Output")
 }

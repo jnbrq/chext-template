@@ -414,10 +414,27 @@ class Project:
             f"project({old_cmake_project})",
             f"project({new_cmake_project})",
         )
+        self._write_vscode_titles(new_name)
 
         self.data["project_name"] = new_name
         self.save()
         self.sync()
+
+    def _write_vscode_titles(self, project_name: str | None = None) -> None:
+        name = project_name or self.data["project_name"]
+        titles = {
+            "chisel_rtl/.vscode/settings.json":
+                f'{name} - Chisel/Chext - ${{activeEditorShort}}${{separator}}${{appName}}',
+            "sysc_tb/.vscode/settings.json":
+                f'{name} - SystemC Testbench - ${{activeEditorShort}}${{separator}}${{appName}}',
+        }
+        for rel, title in titles.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps({"window.title": title}, indent=2) + "\n",
+                encoding="utf-8",
+            )
 
     def cleanup_template(self) -> None:
         removed = False

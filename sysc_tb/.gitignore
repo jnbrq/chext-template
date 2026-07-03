@@ -1,4 +1,7 @@
 # CMake and compiler output
+.vscode/*
+!.vscode/
+!.vscode/settings.json
 build/
 cmake-build-*/
 test_run_dir/

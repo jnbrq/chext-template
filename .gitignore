@@ -1,0 +1,8 @@
+.metals/
+.bloop/
+.bsp/
+.vscode/
+target/
+build/
+__pycache__/
+*.pyc

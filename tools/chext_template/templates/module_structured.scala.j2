@@ -1,0 +1,33 @@
+package @@@ scala_package @@@
+
+import chisel3._
+import chisel3.util._
+import chisel3.experimental.prefix
+
+import chext.{elastic => e}
+import e.ConnectOp._
+
+case class @@@ module_name @@@_Config(
+    val width: Int = 32,
+    val desiredName: Option[String] = Option.empty
+) {
+  require(width > 0)
+
+  val genPacket = new @@@ module_name @@@_Packet(this)
+}
+
+class @@@ module_name @@@_Packet(cfg: @@@ module_name @@@_Config) extends Bundle {
+  val data = UInt(cfg.width.W)
+}
+
+class @@@ module_name @@@(val cfg: @@@ module_name @@@_Config) extends Module {
+  override def desiredName: String =
+    cfg.desiredName.getOrElse(super.desiredName)
+
+  val source = IO(e.Source(cfg.genPacket))
+  val sink = IO(e.Sink(cfg.genPacket))
+
+  val transform0 = new e.Transform(source, sink) {
+    out := in
+  }
+}

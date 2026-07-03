@@ -1,0 +1,27 @@
+#include <systemc>
+
+#include <chext_test/chext_test.hpp>
+
+using namespace sc_core;
+using namespace sc_dt;
+using namespace chext_test;
+
+struct TestBench : TestBenchBase {
+    SC_HAS_PROCESS(TestBench);
+
+    TestBench(sc_module_name name)
+        : TestBenchBase(name) {
+        SC_THREAD(run);
+    }
+
+    void run() {
+        wait(10, SC_NS);
+        finish();
+    }
+};
+
+int sc_main(int argc, char** argv) {
+    TestBench tb("tb");
+    sc_start();
+    return 0;
+}
